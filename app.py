@@ -1,3 +1,6 @@
+import os
+os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
+
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import fitz  # pymupdf
@@ -22,17 +25,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ocr = PaddleOCR(
-    use_doc_orientation_classify=True,
-    use_doc_unwarping=True,
-    use_textline_orientation=True,
-    lang="en",
-)
+ocr = None
 
 
-# ----------------------------
-# Base utilities
-# ----------------------------
+def get_ocr():
+    global ocr
+    if ocr is None:
+        ocr = PaddleOCR(
+            use_doc_orientation_classify=True,
+            use_doc_unwarping=True,
+            use_textline_orientation=True,
+            lang="en",
+        )
+    return ocr
+
 
 def render_first_page_to_image(file_bytes: bytes):
     try:
@@ -44,8 +50,6 @@ def render_first_page_to_image(file_bytes: bytes):
         raise ValueError("PDF senza pagine.")
 
     page = pdf[0]
-
-    # più leggero del 2x2 ma ancora leggibile
     matrix = fitz.Matrix(1.5, 1.5)
     pix = page.get_pixmap(matrix=matrix, alpha=False)
     image = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
@@ -53,10 +57,6 @@ def render_first_page_to_image(file_bytes: bytes):
 
 
 def crop_invoice_table_area(image: Image.Image):
-    """
-    Crop veloce della zona tabella.
-    Non sempre basta, quindi verrà usato solo come primo tentativo.
-    """
     w, h = image.size
 
     left = int(w * 0.00)
@@ -77,7 +77,8 @@ def crop_invoice_table_area(image: Image.Image):
 
 def run_ocr_on_image(image: Image.Image):
     image_np = np.array(image)
-    return ocr.predict(image_np)
+    engine = get_ocr()
+    return engine.predict(image_np)
 
 
 def simplify_paddle_result(results):
@@ -177,10 +178,6 @@ def build_matrix(extracted_rows):
         ]
     ]
 
-
-# ----------------------------
-# Full-page robust parser
-# ----------------------------
 
 def find_header_items(items):
     header_map = {}
@@ -363,16 +360,11 @@ def extract_rows_full_page(items):
     }
 
 
-# ----------------------------
-# Fast cropped parser
-# ----------------------------
-
 def extract_rows_cropped(items):
     valid_items = [i for i in items if i.get("text")]
     if not valid_items:
         return [], {"strategy": "cropped", "itemsFound": 0}
 
-    # colonne approximate nel crop
     col_description = 190
     col_unit = 585
     col_quantity = 700
@@ -482,12 +474,7 @@ def extract_rows_cropped(items):
     }
 
 
-# ----------------------------
-# Hybrid parser
-# ----------------------------
-
 def parse_hybrid(image: Image.Image):
-    # 1) prova crop veloce
     cropped, crop_meta = crop_invoice_table_area(image)
     cropped_results = run_ocr_on_image(cropped)
     cropped_items = flatten_items(simplify_paddle_result(cropped_results))
@@ -500,7 +487,6 @@ def parse_hybrid(image: Image.Image):
             "debug": cropped_debug,
         }
 
-    # 2) fallback full page robusto
     full_results = run_ocr_on_image(image)
     full_items = flatten_items(simplify_paddle_result(full_results))
     full_rows, full_debug = extract_rows_full_page(full_items)
@@ -523,7 +509,7 @@ def parse_hybrid(image: Image.Image):
     }
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {
         "ok": True,
