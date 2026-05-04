@@ -3,7 +3,7 @@ os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import fitz  # pymupdf
+import fitz
 from PIL import Image
 from paddleocr import PaddleOCR
 import io
@@ -19,6 +19,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5174",
+        "https://magazzino-pro.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -26,7 +27,6 @@ app.add_middleware(
 )
 
 ocr = None
-
 
 def get_ocr():
     global ocr
@@ -58,12 +58,10 @@ def render_first_page_to_image(file_bytes: bytes):
 
 def crop_invoice_table_area(image: Image.Image):
     w, h = image.size
-
     left = int(w * 0.00)
     top = int(h * 0.35)
     right = int(w * 0.98)
     bottom = int(h * 0.76)
-
     cropped = image.crop((left, top, right, bottom))
     return cropped, {
         "left": left,
@@ -270,7 +268,6 @@ def extract_rows_full_page(items):
             code_anchors.append(item)
 
     code_anchors = sorted(code_anchors, key=lambda i: i["y"] or 0)
-
     extracted = []
 
     for idx, anchor in enumerate(code_anchors):
@@ -576,3 +573,16 @@ async def parse_scan_invoice(file: UploadFile = File(...)):
         "matrix": matrix,
         "debug": debug,
     }
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://magazzino-pro.vercel.app",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
