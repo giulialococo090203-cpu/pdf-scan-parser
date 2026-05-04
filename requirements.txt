@@ -2,7 +2,7 @@ fastapi
 uvicorn
 python-multipart
 paddleocr
-paddlepaddle
+paddlepaddle==3.0.0
 pymupdf
 Pillow
 numpy
